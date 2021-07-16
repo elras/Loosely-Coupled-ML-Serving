@@ -3,7 +3,7 @@ import requests
 import json
 import os
 import signal
-from networks import Classify
+from network import Classify
 
 
 class Worker(object):
@@ -20,7 +20,7 @@ class Worker(object):
         """To handle K8s SIGTERM, see https://docs.python.org/3/library/signal.html"""
         self._exit = True
 
-    def _download_image(self, url):
+    def _download_image(self, sas_url):
         """Download image from a blob storage"""
         pass
 
@@ -52,14 +52,14 @@ class Worker(object):
                             data = json.loads(str(message))
 
                             try:
-                                # ----------- Processing code block ---------- #
+                                # ----------- Inference block ---------- #
                                 image = self._download_image(data["blob_url"])
                                 class_probobalities = self.classifier(image)
                                 # -------------------------------------------- #
 
                                 resp = requests.post(
                                     data["function_event_url"],
-                                    json=True,
+                                    json=True, # Notify durable function it succeeded
                                     timeout=10,
                                     headers={"Content-Type": "application/json"},
                                 )
@@ -68,7 +68,7 @@ class Worker(object):
                                     receiver.complete_message(message)
                                     self._upload_results(class_probobalities)
                                 else:
-                                    # Failed due to reply issue, log here
+                                    # Failed due to request-reply issue, log here
                                     receiver.dead_letter_message(
                                         message,
                                         reason=str(resp.status_code),
@@ -84,13 +84,13 @@ class Worker(object):
                                 )
                                 _ = requests.post(
                                     data["function_event_url"],
-                                    json=False,
+                                    json=False, # Notify durable function it failed
                                     timeout=10,
                                     headers={"Content-Type": "application/json"},
                                 )
 
                         else:
-                            # Stop the container after receiving SIGTERM
+                            # Stop the container after receiving K8s SIGTERM
                             receiver.abandon_message(message)
                             return True
 
